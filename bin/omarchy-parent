@@ -12,8 +12,9 @@
 #
 # Runs as root. `sudo omarchy-parent password` is the documented shape; a bare
 # invocation (the menu's) re-execs itself under sudo, whose prompt is the parent
-# password itself. The caller's gum theme vars are forwarded as `env` arguments
-# rather than via `sudo -E`, so styling survives an env_reset sudoers.
+# password itself. The installation path and caller's gum theme vars are
+# forwarded as `env` arguments so the same checkout and styling survive an
+# env_reset sudoers.
 
 set -euo pipefail
 
@@ -90,7 +91,7 @@ esac
 
 if (( EUID != 0 )); then
   mapfile -t gum_env < <(env | grep '^GUM_' || true)
-  exec sudo env "${gum_env[@]}" "$0" "$@"
+  exec sudo env OMARCHY_PATH="$OMARCHY_PATH" "${gum_env[@]}" "$0" "$@"
 fi
 
 # install_sudoers, SUDOERS_DIR, and the parent.conf helpers (PARENT_CONF,
