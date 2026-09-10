@@ -10,4 +10,14 @@ if [[ -d $skill ]]; then
     mkdir -p "$skills_dir"
     ln -sfn "$skill" "$skills_dir/omarchy-vm"
   done
+
+  # Hermes discovers skills through the active profile, so an existing profile
+  # needs its own link the way omarchy-provision-user gives a fresh install one.
+  if [[ -d ~/.hermes/profiles ]]; then
+    for profile in ~/.hermes/profiles/*/; do
+      [[ -d $profile ]] || continue
+      mkdir -p "$profile/skills"
+      ln -sfn "$skill" "$profile/skills/omarchy-vm"
+    done
+  fi
 fi

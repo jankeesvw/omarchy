@@ -138,23 +138,28 @@ qmp() {
 }
 
 latest_iso_version() {
-  # The ISO releases are tagged in the omarchy-iso repository; the download host
-  # serves them by exact version and has no "latest" alias.
-  curl -fsSL https://api.github.com/repos/omacom-io/omarchy-iso/releases/latest 2>/dev/null |
+  # Each Omarchy release gets an ISO named after its version. The omarchy-iso
+  # repository publishes no releases of its own, and the download host serves
+  # them by exact version with no "latest" alias.
+  curl -fsSL https://api.github.com/repos/omacom/omarchy/releases/latest 2>/dev/null |
     jq -r '.tag_name // empty' | sed 's/^v//'
 }
 
 # Verify the release signature against the Omarchy signing key before a 6 GB
-# download is written to a disk that then installs itself unattended.
+# download is written to a disk that then installs itself unattended. Every
+# release publishes a signature next to the ISO, so a missing one means
+# something went wrong rather than that verification is optional. pacman-key
+# --verify would accept any key in the pacman keyring, which is every Arch
+# packager, so this reads gpg's status output and pins Omarchy's fingerprint.
 verify_iso() {
-  local iso="$1" signature="$iso.sig"
+  local iso="$1"
+  local signature="$iso.sig"
 
-  if [[ ! -f $signature ]]; then
-    echo "No signature next to the ISO; skipping verification." >&2
-    return 0
-  fi
+  [[ -f $signature ]] ||
+    abort "No signature next to $(basename "$iso"); refusing to install an unverified ISO."
 
-  if ! pacman-key --verify "$signature" "$iso" >/dev/null 2>&1; then
+  if ! gpg --homedir /etc/pacman.d/gnupg --status-fd 1 --verify "$signature" "$iso" 2>/dev/null |
+    grep -q "^\\[GNUPG:\\] VALIDSIG .*$SIGNING_KEY"; then
     rm -f "$iso" "$signature"
     abort "ISO signature does not verify against $SIGNING_KEY. Removed the download."
   fi
@@ -168,16 +173,19 @@ fetch_iso() {
   [[ -n $version ]] || abort "Could not determine the latest ISO version. Pass one with --iso PATH."
 
   iso="$ISO_DIR/omarchy-$version.iso"
-  if [[ -f $iso ]]; then
-    echo "$iso"
-    return 0
+  # Downloaded under a .part name and moved into place only once curl has the
+  # whole file: an interrupted transfer would otherwise leave a partial ISO that
+  # the next install takes for a complete one. Verification runs on a cached ISO
+  # too, so one that was replaced after its download is still caught.
+  if [[ ! -f $iso ]]; then
+    mkdir -p "$ISO_DIR"
+    echo "Downloading omarchy-$version.iso" >&2
+    curl -fL --progress-bar -C - -o "$iso.part" "https://iso.omarchy.org/omarchy-$version.iso" >&2 ||
+      abort "Download failed."
+    curl -fsSL -o "$iso.sig" "https://iso.omarchy.org/omarchy-$version.iso.sig" ||
+      abort "Signature download failed."
+    mv "$iso.part" "$iso"
   fi
-
-  mkdir -p "$ISO_DIR"
-  echo "Downloading omarchy-$version.iso" >&2
-  curl -fL --progress-bar -o "$iso" "https://iso.omarchy.org/omarchy-$version.iso" >&2 ||
-    abort "Download failed."
-  curl -fsSL -o "$iso.sig" "https://iso.omarchy.org/omarchy-$version.iso.sig" 2>/dev/null || true
   verify_iso "$iso" >&2
 
   echo "$iso"
@@ -315,7 +323,7 @@ EOF
 }
 
 cmd_install() {
-  local iso=""
+  local iso="" iso_option
 
   while (($# > 0)); do
     case "$1" in
@@ -357,6 +365,12 @@ cmd_install() {
     iso=$(fetch_iso)
   fi
   [[ -f $iso ]] || abort "ISO not found: $iso"
+  # QEMU runs from a systemd user unit, which starts in the home directory
+  # rather than where the command was typed, so a relative --iso would be
+  # looked for somewhere else. Commas separate QEMU's own -drive options, so
+  # one in the path has to be doubled to survive.
+  iso=$(realpath "$iso")
+  iso_option=${iso//,/,,}
 
   echo "Building the answer drive"
   build_cidata
@@ -369,7 +383,7 @@ cmd_install() {
   # system boots from the same disk afterwards with no boot order to change.
   # shellcheck disable=SC2046
   start_qemu $(graphics_args 0) \
-    -drive "file=$iso,media=cdrom,if=none,format=raw,id=cdrom0" \
+    -drive "file=$iso_option,media=cdrom,if=none,format=raw,id=cdrom0" \
     -device ide-cd,drive=cdrom0,bootindex=2 \
     -drive "file=$CIDATA,format=raw,if=none,id=cidata" \
     -device usb-storage,drive=cidata
@@ -665,6 +679,15 @@ cmd_resolution() {
   echo "Guest and window set to ${width}x${height}."
 }
 
+# A snapshot name becomes a path under SNAPSHOT_DIR that save writes to and
+# remove hands to rm -rf, so a name containing a slash or .. would reach outside
+# the VM directory entirely. Constraining the name is simpler than resolving the
+# path afterwards, and covers save, restore and remove in one place.
+check_snapshot_name() {
+  [[ ${1:-} =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
+    abort "Snapshot names may contain only letters, digits, dot, dash and underscore."
+}
+
 cmd_snapshot() {
   local action="${1:-list}"
   (( $# > 0 )) && shift
@@ -678,6 +701,7 @@ cmd_snapshot() {
         fi
       done
       [[ -n $name && $name != -* ]] || abort "Usage: omarchy vm snapshot save <name> [--force]"
+      check_snapshot_name "$name"
 
       if vm_running; then
         abort "Stop the VM first; copying a live disk gives an inconsistent image."
@@ -697,6 +721,7 @@ cmd_snapshot() {
     restore)
       local name="${1:-}"
       [[ -n $name ]] || abort "Usage: omarchy vm snapshot restore <name>"
+      check_snapshot_name "$name"
       [[ -d $SNAPSHOT_DIR/$name ]] || abort "No snapshot '$name'."
 
       if vm_running; then
@@ -710,6 +735,7 @@ cmd_snapshot() {
     remove)
       local name="${1:-}"
       [[ -n $name ]] || abort "Usage: omarchy vm snapshot remove <name>"
+      check_snapshot_name "$name"
       [[ -d $SNAPSHOT_DIR/$name ]] || abort "No snapshot '$name'."
 
       rm -rf "${SNAPSHOT_DIR:?}/$name"

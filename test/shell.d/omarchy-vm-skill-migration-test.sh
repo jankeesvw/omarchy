@@ -44,6 +44,31 @@ for skills_dir in "${skills_dirs[@]}"; do
 done
 pass "migration is idempotent"
 
+# ------------------------------------------------------------------ pre-existing Hermes profile
+
+rm -rf "$home"
+mkdir -p "$home/.hermes/profiles/james"
+run_migration
+
+assert_link "$home/.hermes/skills/omarchy-vm" "migration links the skill into the default Hermes home when a profile exists"
+assert_link "$home/.hermes/profiles/james/skills/omarchy-vm" "migration links the skill into a pre-existing Hermes profile"
+profile_count=$(find "$home/.hermes/profiles" -mindepth 1 -maxdepth 1 -type d | wc -l)
+(( profile_count == 1 )) || fail "migration does not create extra Hermes profiles" "count=$profile_count"
+pass "migration links a pre-existing Hermes profile"
+
+run_migration
+assert_link "$home/.hermes/profiles/james/skills/omarchy-vm" "migration is idempotent on a pre-existing Hermes profile"
+pass "migration is idempotent on a pre-existing Hermes profile"
+
+# ------------------------------------------------------------------ no Hermes profiles
+
+rm -rf "$home"
+mkdir -p "$home"
+run_migration
+
+[[ -e $home/.hermes/profiles ]] && fail "migration does not create Hermes profiles"
+pass "migration does not create Hermes profiles"
+
 # ------------------------------------------------------------------ existing unrelated skill
 
 rm -rf "$home"
