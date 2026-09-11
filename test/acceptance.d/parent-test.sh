@@ -25,6 +25,7 @@ fi
 
 # Start from no cached credential, so each probe below proves its own password.
 sudo -K
+trap 'sudo -K' EXIT
 
 if id -nG | grep -qw wheel; then
   fail "the kid account is outside wheel" "groups: $(id -nG)"
@@ -36,7 +37,9 @@ if printf '%s\n' "$OMARCHY_ACCEPTANCE_USER_PASSWORD" | sudo -S -k -v 2>/dev/null
 fi
 pass "sudo refuses the kid password"
 
-printf '%s\n' "$OMARCHY_ACCEPTANCE_SUDO_PASSWORD" | sudo -S -k -v 2>/dev/null ||
+# Cache this validation for the sudo -n policy checks below. With -k, sudo -v
+# checks the password but does not update the timestamp.
+printf '%s\n' "$OMARCHY_ACCEPTANCE_SUDO_PASSWORD" | sudo -S -v 2>/dev/null ||
   fail "sudo accepts the parent password"
 pass "sudo accepts the parent password"
 
@@ -72,5 +75,3 @@ sudo -n grep -qE '^auth[[:space:]]+\[success=2 default=ignore\][[:space:]]+pam_u
 sudo -n test -f /etc/pam.d/sddm.omarchy-orig || fail "the packaged login stack is kept beside the child one"
 sudo -n grep -qE '^auth[[:space:]]+requisite[[:space:]]+pam_nologin\.so' /etc/pam.d/sddm || fail "the login stack keeps the nologin check"
 pass "the parent password is wired into the lock screen and the login screen"
-
-sudo -K
