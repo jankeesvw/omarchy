@@ -170,7 +170,8 @@ conf_document wifi parent "wifi: who may join and change Wi-Fi networks." "  par
 grep -qx 'wifi=parent' "$PARENT_CONF" || fail "conf_document spells out the Wi-Fi default"
 grep -q '^# wifi: who may join' "$PARENT_CONF" || fail "conf_document explains the key above it"
 grep -q '^# Omarchy kids mode' "$PARENT_CONF" || fail "conf_init writes the general header first"
-[[ $(stat -f %Lp "$PARENT_CONF" 2>/dev/null || stat -c %a "$PARENT_CONF") == 644 ]] || fail "parent.conf is world-readable"
+mode=$(stat -c %a "$PARENT_CONF" 2>/dev/null) || mode=$(stat -f %Lp "$PARENT_CONF")
+[[ $mode == "644" ]] || fail "parent.conf is world-readable" "$mode"
 [[ $(conf_get wifi parent) == parent ]] || fail "conf_get reads the default it wrote"
 conf_set wifi kid
 conf_document wifi parent "wifi: who may join and change Wi-Fi networks."
@@ -223,9 +224,9 @@ export DISPATCH_LOG="$dispatch_tmp/log"
 help_output=$(OMARCHY_PATH="$dispatch_tmp" bash "$parent" --help)
 [[ $help_output == *"foo       Frobnicate the kid's things"* ]] || fail "help lists feature commands by their summary" "$help_output"
 [[ $help_output != *bar-tick* ]] || fail "help leaves hidden plumbing out of the feature list"
-PATH="$dispatch_tmp/bin:$PATH" OMARCHY_PATH="$dispatch_tmp" bash "$parent" foo on --user kid
+PATH="$dispatch_tmp/bin:$ROOT/bin:$PATH" OMARCHY_PATH="$dispatch_tmp" bash "$parent" foo on --user kid
 [[ $(<"$DISPATCH_LOG") == "foo on --user kid" ]] || fail "a feature command receives its arguments untouched, before any elevation" "got: $(<"$DISPATCH_LOG")"
-if OMARCHY_PATH="$dispatch_tmp" bash "$parent" nope >/dev/null 2>&1; then
+if PATH="$dispatch_tmp/bin:$ROOT/bin:$PATH" OMARCHY_PATH="$dispatch_tmp" bash "$parent" nope >/dev/null 2>&1; then
   fail "a name with no feature command is refused"
 fi
 rm -rf "$dispatch_tmp"
@@ -273,6 +274,9 @@ cat >"$stub_bin/chpasswd" <<'SH'
 #!/bin/bash
 printf 'chpasswd %s\n' "$(cat)" >>"$CALLS"
 SH
+# Console behavior is covered above. The namespaced apply probes must not
+# contact the host's system manager, even on an installed child machine.
+printf '#!/bin/bash\nexit 0\n' >"$stub_bin/systemctl"
 cat >"$stub_bin/gum" <<'SH'
 #!/bin/bash
 line=$(sed -n "$(( $(cat "$GUM_COUNT") + 1 ))p" "$GUM_SCRIPT")

@@ -78,14 +78,15 @@ case "${1:-}" in
     exit 1
     ;;
   *)
-    if command -v "omarchy-parent-$1" >/dev/null 2>&1; then
+    if omarchy-cmd-present "omarchy-parent-$1"; then
       feature="omarchy-parent-$1"
       shift
       exec "$feature" "$@"
+    else
+      echo "Unknown command: $1" >&2
+      usage >&2
+      exit 1
     fi
-    echo "Unknown command: $1" >&2
-    usage >&2
-    exit 1
     ;;
 esac
 
@@ -216,8 +217,7 @@ install_wifi_rule() {
     result=AUTH_ADMIN_KEEP
   fi
   stage=$(mktemp)
-  # Expands the kid's account name and the polkit result chosen above; the
-  # rule names no path.
+  # omarchy:heredoc-expands paths=none -- $user names an existing account checked by require_user; $mode and $result are fixed Wi-Fi choices, and none is a path.
   cat >"$stage" <<WIFI
 // Omarchy kids mode: Wi-Fi on a child install, from wifi=$mode in
 // /etc/omarchy/parent.conf. Written by omarchy-parent; change it with
