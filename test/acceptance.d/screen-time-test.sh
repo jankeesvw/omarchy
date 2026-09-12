@@ -3,8 +3,11 @@
 # Screen time on a real machine: the unit starts under systemd with the strict
 # sandbox on, writes its config and state, keeps the PIN across a restart, and
 # refuses a socket-less caller that is not in the roster through sudo. Runs
-# only where the daemon is actually installed and the tester can sudo without
-# a prompt (the acceptance harness); skips cleanly everywhere else.
+# only where the daemon is actually installed and sudo can be had without a
+# prompt: passwordless (a default install under the harness), or with the
+# parent password the harness hands a child install in
+# OMARCHY_ACCEPTANCE_SUDO_PASSWORD, the way parent-test.sh takes it. Skips
+# cleanly everywhere else.
 
 set -euo pipefail
 
@@ -14,8 +17,12 @@ if ! command -v omarchy-parent-screen-time >/dev/null || [[ ! -f /etc/systemd/sy
   pass "screen time acceptance skipped: the daemon is not installed here"
   exit 0
 fi
-if ! sudo -n true 2>/dev/null; then
-  pass "screen time acceptance skipped: needs passwordless sudo (the acceptance harness)"
+if [[ -n ${OMARCHY_ACCEPTANCE_SUDO_PASSWORD:-} ]]; then
+  # Warm sudo's ticket with the parent password; every sudo -n below rides it.
+  printf '%s\n' "$OMARCHY_ACCEPTANCE_SUDO_PASSWORD" | sudo -S -k -v 2>/dev/null ||
+    fail "sudo accepts the parent password from OMARCHY_ACCEPTANCE_SUDO_PASSWORD"
+elif ! sudo -n true 2>/dev/null; then
+  pass "screen time acceptance skipped: needs passwordless sudo or OMARCHY_ACCEPTANCE_SUDO_PASSWORD (the acceptance harness)"
   exit 0
 fi
 

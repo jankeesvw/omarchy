@@ -56,12 +56,14 @@ pass "the day carries its budget, grant and spend"
 # The status the widget reads: the phase and the block reason a profile and a
 # day produce. A bedtime that wraps past midnight blocks in the small hours.
 profile=$(st_jq -n 'default_profile | .blocked_periods[0].enabled = true')
-running=$(st_status_json 4242 kid 1000000000 kids "$profile" "$spent" "$st_runtime_default" true)
-# 1000000000 is 02:46 next to a 20:00-07:00 bedtime, so the block is on.
+running=$(TZ=UTC st_status_json 4242 kid 1000000000 kids "$profile" "$spent" "$st_runtime_default" true)
+# 1000000000 is 01:46 UTC next to a 20:00-07:00 bedtime, so the block is on.
+# The moment is read in the runner's timezone, so pin one: in Denver the same
+# epoch is 19:46, before the window.
 [[ $(jq -r .phase <<<"$running") == bedtime ]] || fail "an enabled overnight period blocks in the small hours"
 [[ $(jq -r .blocked_label <<<"$running") == Bedtime ]] || fail "the status names the period that is blocking"
 empty_day=$(jq -c '.spent_seconds = 3600' <<<"$day")
-noon=$(st_status_json 4242 kid 1000030000 kids "$(st_jq -n 'default_profile')" "$empty_day" "$st_runtime_default" true)
+noon=$(TZ=UTC st_status_json 4242 kid 1000030000 kids "$(st_jq -n 'default_profile')" "$empty_day" "$st_runtime_default" true)
 [[ $(jq -r .phase <<<"$noon") == empty ]] || fail "a spent budget outside a block reads as empty"
 pass "the status reports bedtime and empty from the profile and the day"
 

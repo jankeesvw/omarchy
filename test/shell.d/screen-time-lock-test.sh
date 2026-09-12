@@ -137,7 +137,14 @@ for _ in $(seq 1 10); do
 done
 [[ -s $lock_log ]] || fail "a budget that stays empty past the grace locks the screen" "daemon: $(cat "$tmp_dir/daemon.log")"
 grep -q "^locked " "$lock_log" || fail "the lock goes through the configured command"
-[[ $(jq -r '.ledger[-1].kind' "$day_file") == locked ]] || fail "the lock is written to the day's ledger"
+# The daemon runs the lock command first and writes the day after, so the
+# ledger can trail the lock log by a moment on a busy machine.
+ledger_kind() { jq -r '.ledger[-1].kind' "$day_file" 2>/dev/null; }
+for _ in $(seq 1 20); do
+  [[ $(ledger_kind) == locked ]] && break
+  sleep 0.5
+done
+[[ $(ledger_kind) == locked ]] || fail "the lock is written to the day's ledger"
 pass "an empty budget past the grace locks the screen and records it"
 
 # A shell that will not lock (frozen, killed, replaced) is the one way round
@@ -160,5 +167,9 @@ done
 [[ -s $tmp_dir/terminate.log ]] || fail "a lock that keeps failing ends in the session being terminated" "locks: $(cat "$lock_log"; cat "$tmp_dir/daemon.log")"
 (( $(grep -c '^failed ' "$lock_log") >= 3 )) || fail "the session is only ended after several failed locks" "locks: $(cat "$lock_log")"
 grep -q '^terminated 7$' "$tmp_dir/terminate.log" || fail "the session that is ended is the account's own"
-[[ $(jq -r '.ledger[-1].kind' "$day_file") == terminated ]] || fail "ending the session is written to the day's ledger"
+for _ in $(seq 1 20); do
+  [[ $(ledger_kind) == terminated ]] && break
+  sleep 0.5
+done
+[[ $(ledger_kind) == terminated ]] || fail "ending the session is written to the day's ledger"
 pass "a shell that keeps failing to lock costs the account its session"
