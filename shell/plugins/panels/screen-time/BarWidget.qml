@@ -20,8 +20,12 @@ Panel {
   readonly property string phase: screenTime ? String(screenTime.phase) : ""
   readonly property int remaining: screenTime ? screenTime.remainingSeconds : 0
   // In together mode the widget is a mirror, not a meter: it shows time
-  // spent, never counts down, and carries no warning colours.
+  // spent and never counts down. The one colour it carries is red once the
+  // day has gone past what the family agreed on, so the kid sees it too.
   readonly property bool together: screenTime ? screenTime.philosophy === "together" : false
+  readonly property bool overAgreement: together && screenTime
+    && screenTime.agreementMinutes > 0
+    && screenTime.spentSeconds >= screenTime.agreementMinutes * 60
   readonly property bool blockedPhase: phase === "empty" || phase === "bedtime"
   readonly property bool low: connected && !together && !blockedPhase
     && remaining <= (screenTime ? screenTime.minWarnSeconds : 60)
@@ -62,7 +66,7 @@ Panel {
   readonly property color okColor: lightTheme ? "#3C7C4E" : "#5FA46B"
   readonly property color pillColor: {
     if (!root.bar) return "white"
-    if (blockedPhase) return blockColor
+    if (blockedPhase || overAgreement) return blockColor
     if (low) return warnColor
     if (phase === "idle" || phase === "paused") return fade(root.bar.barForeground, 0.45)
     return root.bar.barForeground
