@@ -44,7 +44,7 @@ def default_earn: {
 def default_profile: {
   name: "Default", philosophy: "limits",
   budget_minutes: {mon:60,tue:60,wed:60,thu:60,fri:60,sat:90,sun:90},
-  blocked_periods: [{label:"Bedtime", enabled:false, start:"20:00", end:"07:00"}],
+  blocked_periods: [{label:"Bedtime", enabled:true, start:"20:00", end:"07:00", days: days}],
   warn_minutes: [15,5,1], on_empty: "lock",
   grace_seconds: 60, relock_seconds: 30, unlock_grace_seconds: 120,
   agreement_text: "", agreement_minutes: 0, break_nudge_minutes: 45,
@@ -86,8 +86,17 @@ def sanitize_periods:
     {label: ((.label // "" | tostring | .[:40]) as $l | if ($l | test("^\\s*$")) then "Blocked" else ($l | sub("^\\s+"; "") | sub("\\s+$"; "")) end),
      enabled: (.enabled == true),
      start: (.start | time_of_day($d.start)),
-     end: (.end | time_of_day($d.end))}
+     end: (.end | time_of_day($d.end)),
+     days: (. as $p | [days[] | select(. as $k | ($p.days // days) | index($k))] | if length == 0 then days else . end)}
     | select(.start != .end) ];
+
+# Whether a period covers the moment $m on weekday $wd (yesterday was $ywd).
+# A period that wraps past midnight belongs to the day it starts on: a
+# Friday bedtime still holds at three on Saturday morning.
+def covers($m; $wd; $ywd):
+  if .start == .end then false
+  elif .start < .end then ((.days | index($wd)) != null and .start <= $m and $m < .end)
+  else (((.days | index($wd)) != null and $m >= .start) or ((.days | index($ywd)) != null and $m < .end)) end;
 
 def sanitize_profile:
   (if type == "object" then . else {} end) as $raw | default_profile as $d |
@@ -160,6 +169,7 @@ st_now() { date +%s; }
 st_uptime() { cut -d' ' -f1 /proc/uptime | cut -d. -f1; }
 st_day_key() { date -d "@${1:-$(st_now)}" +%F; }
 st_weekday_key() { date -d "@${1:-$(st_now)}" +%a | tr '[:upper:]' '[:lower:]'; }
+st_yesterday_key() { st_weekday_key "$(( ${1:-$(st_now)} - 86400 ))"; }
 st_moment() { date -d "@${1:-$(st_now)}" +%H:%M; }
 
 st_human_time() {
@@ -361,11 +371,11 @@ st_status_json() {
   # One line: the widget's stream reads it line by line.
   st_jq -nc --arg user "$user" --argjson now "$now" --arg key "$key" \
     --argjson profile "$profile" --argjson day "$day" --argjson rt "$runtime" \
-    --arg moment "$(st_moment "$now")" --argjson pin_set "$pin_set" '
-    def covers($m): if .start == .end then false elif .start < .end then (.start <= $m and $m < .end) else ($m >= .start or $m < .end) end;
+    --arg moment "$(st_moment "$now")" --arg wd "$(st_weekday_key "$now")" --arg ywd "$(st_yesterday_key "$now")" --argjson pin_set "$pin_set" '
     ($profile.blocked_periods | map(select(.enabled))) as $enabled |
-    ($enabled | map(select(covers($moment))) | .[0]) as $blocking |
-    (($enabled | map(select(.start > $moment)) | sort_by(.start) | .[0]) // ($enabled | sort_by(.start) | .[0])) as $next |
+    ($enabled | map(select(covers($moment; $wd; $ywd))) | .[0]) as $blocking |
+    ($enabled | map(select(.days | index($wd)))) as $today |
+    (($today | map(select(.start > $moment)) | sort_by(.start) | .[0]) // null) as $next |
     ($profile.philosophy == "together") as $together |
     ($day | day_remaining) as $remaining |
     (if $together then null elif $blocking != null then "bedtime" elif $remaining <= 0 then "empty" else null end) as $reason |

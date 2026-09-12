@@ -32,9 +32,11 @@ HISTORY_EVERY=12 # ticks between history.json rewrites, a minute at the default 
 # profile, what logind said, the clock. Output: the new day, the new runtime,
 # the actions, and whether the day changed enough to be worth writing.
 read -r -d '' TICK_JQ <<'JQ' || true
-def covers($m): if .start == .end then false elif .start < .end then (.start <= $m and $m < .end) else ($m >= .start or $m < .end) end;
-def blocking: [$profile.blocked_periods[] | select(.enabled and covers($moment))] | .[0];
-def headline($reason): if $reason == "empty" then "Today's screen time is used up." else "It is \(((blocking.label // "a quiet time") | ascii_downcase))." end;
+def blocking: [$profile.blocked_periods[] | select(.enabled and covers($moment; $wd; $ywd))] | .[0];
+def headline($reason):
+  if $reason == "empty" then "Today's screen time is used up."
+  elif (blocking.label // "Blocked") == "Blocked" then "The screen is blocked right now."
+  else "It is \(blocking.label | ascii_downcase)." end;
 def together: $profile.philosophy == "together";
 def reason: if together then null elif blocking != null then "bedtime" elif (.day | day_remaining) <= 0 then "empty" else null end;
 def earn_room: ([$profile.earn.daily_cap_minutes * 60 - .day.earned_seconds, 0] | max);
@@ -144,7 +146,8 @@ tick_account() {
   result=$(st_jq -n --argjson day "$day" --argjson rt "$rt" --argjson profile "$profile" \
     --argjson session "$session" --argjson now "$now" --argjson step "$elapsed" \
     --argjson tick "$TICK" --argjson rest_reset "$ST_REST_RESET" --argjson lock_failures_max "$ST_LOCK_FAILURES_MAX" \
-    --arg moment "$(st_moment "$now")" --arg daykey "$daykey" "$TICK_JQ") || {
+    --arg moment "$(st_moment "$now")" --arg wd "$(st_weekday_key "$now")" --arg ywd "$(st_yesterday_key "$now")" \
+    --arg daykey "$daykey" "$TICK_JQ") || {
     log "tick failed for $user"
     return
   }

@@ -45,6 +45,8 @@ Item {
   readonly property color blockColor: lightTheme ? "#B03434" : "#E06C6C"
   readonly property string iconLock: "\uf023"
   readonly property string iconGear: "\uf013"
+  readonly property string iconPause: "\uf04c"
+  readonly property string iconPlay: "\uf04b"
 
   // The window's state. "pin" asks; "controls" is the drawer; "missing" says
   // there is no PIN and names the command. `after` is where a successful
@@ -60,6 +62,7 @@ Item {
   property int shakeOffset: 0
 
   readonly property bool dialogVisible: open
+  readonly property bool settingsOpen: settingsWindow.opened
 
   function show(target) {
     after = target
@@ -302,9 +305,15 @@ Item {
         anchors.rightMargin: card.contentRightInset
         spacing: Style.space(12)
 
-        Row {
+        Item {
           width: parent.width
-          spacing: Style.space(10)
+          implicitHeight: titleRow.implicitHeight
+
+          Row {
+            id: titleRow
+            spacing: Style.space(10)
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
 
           Text {
             textFormat: Text.PlainText
@@ -317,13 +326,42 @@ Item {
 
           Text {
             textFormat: Text.PlainText
-            text: root.mode === "controls" ? "Screen time" : (root.mode === "missing" ? "No PIN yet" : "Parent PIN")
+            // The title says what is going on: the parent is usually here
+            // because the time ran out, so that is the first thing it says.
+            text: root.mode === "missing" ? "No PIN yet"
+              : root.phase === "empty" ? "Screen time is up"
+              : root.phase === "bedtime" ? "Screen time is blocked"
+              : root.phase === "paused" ? "Screen time is paused"
+              : "Screen time"
             color: root.foreground
             font.family: root.fontFamily
             font.pixelSize: Style.font.title
             font.bold: true
             anchors.verticalCenter: parent.verticalCenter
           }
+          }
+
+          // The way out, top right, once the controls are open.
+          Button {
+            visible: root.mode === "controls"
+            text: "Done"
+            focusable: true
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            onClicked: root.dismiss()
+          }
+        }
+
+        // One line under the title that says what the PIN opens.
+        Text {
+          visible: root.mode === "pin"
+          textFormat: Text.PlainText
+          width: parent.width
+          wrapMode: Text.WordWrap
+          text: "Enter the parent PIN for extra minutes, a pause, the lock, or the settings."
+          color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
         }
 
         // --- no PIN ------------------------------------------------------
@@ -338,15 +376,24 @@ Item {
           font.pixelSize: Style.font.body
         }
 
-        // --- the PIN ------------------------------------------------------
-        Item {
+        // --- the PIN, in a box of its own -----------------------------------
+        Rectangle {
           visible: root.mode === "pin"
           width: parent.width
           height: root.fieldHeight
+          radius: root.cornerRadius
+          color: pinInput.activeFocus && !root.errorFlash
+            ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.12) : "transparent"
+          border.width: 1
+          border.color: root.errorFlash ? Color.polkit.textError
+            : (pinInput.activeFocus ? root.accent : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25))
+          Behavior on color { ColorAnimation { duration: 100 } }
 
           TextInput {
             id: pinInput
             anchors.fill: parent
+            anchors.leftMargin: Style.space(12)
+            anchors.rightMargin: Style.space(12)
             verticalAlignment: TextInput.AlignVCenter
             activeFocusOnPress: true
             clip: true
@@ -371,6 +418,8 @@ Item {
             textFormat: Text.PlainText
             anchors.left: parent.left
             anchors.right: parent.right
+            anchors.leftMargin: Style.space(12)
+            anchors.rightMargin: Style.space(12)
             anchors.verticalCenter: parent.verticalCenter
             text: root.errorFlash ? "Wrong" : (root.submitted ? "Checking..." : "PIN")
             color: root.errorFlash ? Color.polkit.textError : root.foreground
@@ -392,48 +441,124 @@ Item {
         Column {
           visible: root.mode === "controls"
           width: parent.width
-          spacing: Style.space(8)
+          spacing: Style.space(12)
 
-          Text {
-            textFormat: Text.PlainText
+          // Minutes: one bar of three, to hand out.
+          Column {
             width: parent.width
-            wrapMode: Text.WordWrap
-            text: root.statusService ? (root.phase === "paused" ? "The clock is paused." : root.phase === "running" ? "Counting down." : "Not counting right now.") : ""
-            color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.7)
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
+            spacing: Style.space(4)
+
+            Text {
+              textFormat: Text.PlainText
+              text: "Minutes"
+              color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Rectangle {
+              width: parent.width
+              height: Style.space(36)
+              radius: root.cornerRadius
+              color: "transparent"
+              border.width: 1
+              border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+              clip: true
+
+              Row {
+                anchors.fill: parent
+                anchors.margins: 1
+
+                Repeater {
+                  model: [{ label: "+ 5", minutes: 5 }, { label: "+ 15", minutes: 15 }, { label: "+ 30", minutes: 30 }]
+
+                  delegate: Item {
+                    id: minuteCell
+                    required property var modelData
+                    required property int index
+                    width: parent.width / 3
+                    height: parent.height
+                    activeFocusOnTab: true
+                    Keys.onPressed: function(event) {
+                      if (event.key === Qt.Key_Space || event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                        root.grant(minuteCell.modelData.minutes); event.accepted = true
+                      }
+                    }
+
+                    Rectangle {
+                      anchors.fill: parent
+                      color: minuteArea.pressed
+                        ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.3)
+                        : (minuteArea.containsMouse || minuteCell.activeFocus
+                           ? Qt.rgba(root.accent.r, root.accent.g, root.accent.b, 0.14) : "transparent")
+                      Behavior on color { ColorAnimation { duration: 80 } }
+                    }
+
+                    Rectangle {
+                      visible: minuteCell.index > 0
+                      width: 1
+                      height: parent.height
+                      anchors.left: parent.left
+                      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.2)
+                    }
+
+                    Text {
+                      textFormat: Text.PlainText
+                      anchors.centerIn: parent
+                      text: minuteCell.modelData.label
+                      color: root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                      font.bold: true
+                    }
+
+                    MouseArea {
+                      id: minuteArea
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: root.grant(minuteCell.modelData.minutes)
+                    }
+                  }
+                }
+              }
+            }
           }
 
-          Flow {
+          // The rest as bordered buttons with a glyph each, so they read
+          // as things to press and not as words in a row.
+          Row {
+            id: actionRow
             width: parent.width
-            spacing: Style.space(6)
+            spacing: Style.space(8)
+            readonly property int third: Math.floor((width - spacing * 2) / 3)
 
-            Button { text: "+15"; focusable: true; onClicked: root.grant(15) }
-            Button { text: "+60"; focusable: true; onClicked: root.grant(60) }
-            Button { text: "-15"; focusable: true; onClicked: root.grant(-15) }
             Button {
+              width: actionRow.third
+              iconText: root.phase === "paused" ? root.iconPlay : root.iconPause
               text: root.phase === "paused" ? "Resume" : "Pause"
+              bordered: true
               focusable: true
               onClicked: root.togglePause()
             }
-            Button { text: "Lock now"; focusable: true; onClicked: root.lockNow() }
-          }
-
-          Row {
-            width: parent.width
-            spacing: Style.space(8)
-
             Button {
+              width: actionRow.third
+              iconText: root.iconLock
+              text: "Lock now"
+              bordered: true
+              focusable: true
+              onClicked: root.lockNow()
+            }
+            Button {
+              width: actionRow.third
+              iconText: root.iconGear
               text: "Settings"
+              bordered: true
               focusable: true
               onClicked: root.openSettings()
             }
-            Button {
-              text: "Done"
-              focusable: true
-              onClicked: root.dismiss()
-            }
           }
+
         }
 
         Text {
