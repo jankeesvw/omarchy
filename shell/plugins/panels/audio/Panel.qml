@@ -1264,10 +1264,12 @@ Panel {
       anchors.rightMargin: Style.space(6)
       spacing: Style.space(8)
 
+      // The active input shows the muted mic too, in the switch's red.
       Text {
+        readonly property bool muted: sourceRow.isActive && root.inputMuted
         textFormat: Text.PlainText
-        text: root.sourceGlyph(sourceRow.node)
-        color: root.bar.foreground
+        text: muted ? root.inputIcon() : root.sourceGlyph(sourceRow.node)
+        color: muted ? Commons.Color.urgent : root.bar.foreground
         font.family: root.bar.fontFamily
         font.pixelSize: Style.font.title
         width: Style.space(22)
