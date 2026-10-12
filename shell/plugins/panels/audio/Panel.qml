@@ -938,7 +938,7 @@ Panel {
 
             Item {
               width: parent.width
-              implicitHeight: Math.max(microphoneHeader.implicitHeight, microphonePercent.implicitHeight)
+              implicitHeight: Math.max(microphoneHeader.implicitHeight, microphonePercent.implicitHeight, microphoneSwitch.implicitHeight)
 
               PanelSectionHeader {
                 id: microphoneHeader
@@ -957,10 +957,35 @@ Panel {
                 font.family: root.bar.fontFamily
                 font.pixelSize: Style.font.caption
                 font.bold: true
-                anchors.right: parent.right
+                anchors.right: microphoneSwitch.left
                 anchors.rightMargin: Style.space(6)
                 anchors.verticalCenter: parent.verticalCenter
                 opacity: root.inputMuted ? 0.5 : 1.0
+              }
+
+              // A muted microphone only showed as a dimmer slider, which is easy
+              // to miss while the level meter below keeps moving, so the input
+              // gets its own on/off switch. Sized off the header label like the
+              // network panel's band switch; the keyboard keeps `m` on the slider.
+              ToggleSwitch {
+                id: microphoneSwitch
+                visible: root.hasInput
+                trackHeight: Math.round(microphoneHeader.font.pixelSize * 1.2)
+                cursorPad: Style.space(3)
+                anchors.right: parent.right
+                // The track ends where the slider does; the cursor ring takes the rest.
+                anchors.rightMargin: Style.space(6) - cursorPad
+                anchors.verticalCenter: microphoneHeader.verticalCenter
+                anchors.verticalCenterOffset: Math.round(microphoneHeader.topPadding / 2)
+                checked: !root.inputMuted
+                foreground: root.bar.foreground
+                onToggled: root.toggleInputMute()
+
+                PanelToolTip {
+                  visible: microphoneSwitch.containsMouse
+                  text: root.inputMuted ? "Unmute microphone" : "Mute microphone"
+                  fontFamily: root.bar.fontFamily
+                }
               }
             }
 
