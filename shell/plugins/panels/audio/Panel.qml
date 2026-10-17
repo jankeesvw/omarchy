@@ -1061,7 +1061,7 @@ Panel {
 
                 PanelToolTip {
                   visible: microphoneSwitch.containsMouse
-                  text: root.inputMuted ? "Unmute microphone" : "Mute microphone"
+                  text: root.inputMuted ? Commons.I18n.t("audio.unmute") : Commons.I18n.t("audio.mute")
                   fontFamily: root.bar.fontFamily
                 }
               }
